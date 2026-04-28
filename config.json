@@ -1,0 +1,29 @@
+{
+  "company": {
+    "name": "БЫТ ТЕХ ОПТ",
+    "city": "г. Симферополь",
+    "phones": "☎  +7 978 579 29 95  ·  +7 978 839 40 42  ·  +7 990 002 22 30  ·  +7 990 217 03 15",
+    "telegram_links": [
+      {
+        "text": "Telegram: +7 978 579 29 95",
+        "url": "https://t.me/+79785792995"
+      },
+      {
+        "text": "Telegram: +7 990 002 22 30",
+        "url": "https://t.me/+79900022230"
+      }
+    ]
+  },
+  "read_options": {
+    "skiprows": 8
+  },
+  "markups_file": "наценки по группам товара.xlsx",
+  "group_order_file": "Места_по_группам_товара_исправлено.xlsx",
+  "default_markup": 13,
+  "output_prefix": "Генераторы",
+  "priority_groups": ["Генераторы"],
+  "telegram": {
+    "bot_token": "8639233666:AAH1uhJP1gBKIPmKyHesCuP86sFL_BzIvz4",
+    "channel_id": "-1001929222037"
+  }
+}
