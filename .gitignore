@@ -11,5 +11,10 @@ __pycache__/
 
 # Временные файлы
 _*.json
+skills-lock.json
 *.tmp
 ~$*
+
+# Excel файлы поставщиков в корне (класть только в input/)
+*.xls
+*.XLS
