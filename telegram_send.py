@@ -33,8 +33,8 @@ def send_file(filepath: str, caption: str = None) -> bool:
     if caption is None:
         date_str = datetime.today().strftime('%d.%m.%Y')
         caption = (
-            f"Актуальный прайс от {date_str}\n"
-            f"<blockquote>➡️ <b>Генераторы</b>,\n"
+            f"<b>Актуальный прайс от {date_str}</b>\n"
+            f"<blockquote>➡️ Генераторы,\n"
             f"➡️ Инструмент,\n"
             f"➡️ Запчасти</blockquote>"
         )
