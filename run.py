@@ -77,7 +77,11 @@ def main():
         immediate = True
         args.remove('--immediate')
 
-    if '--send-at' in args:
+    if '--schedule' in args:
+        args.remove('--schedule')
+        send_at = input("  Введите время отправки (например 10:00): ").strip()
+
+    elif '--send-at' in args:
         idx = args.index('--send-at')
         if idx + 1 < len(args):
             send_at = args[idx + 1]
