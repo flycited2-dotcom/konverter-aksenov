@@ -17,11 +17,8 @@
   "read_options": {
     "skiprows": 8
   },
-  "markups_file": "наценки по группам товара.xlsx",
-  "group_order_file": "Места_по_группам_товара_исправлено.xlsx",
   "default_markup": 13,
-  "output_prefix": "Генераторы",
-  "priority_groups": ["Генераторы"],
+  "output_prefix": "Аксенов",
   "telegram": {
     "bot_token": "8639233666:AAH1uhJP1gBKIPmKyHesCuP86sFL_BzIvz4",
     "channel_id": "-1001929222037"

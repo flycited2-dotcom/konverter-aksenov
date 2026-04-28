@@ -332,20 +332,13 @@ def transform(input_path, output_dir=None):
     df = read_supplier_price(input_path, config)
     print(f"  Загружено позиций: {len(df)}")
 
-    print("  Загружаю наценки...")
-    group_markups, homeline_prices = load_markups(config)
-    default_markup = config.get('default_markup', 10)
-    print(f"  Наценки по группам: {len(group_markups)}")
-    print(f"  HOMELINE фикс. цены: {len(homeline_prices)}")
+    default_markup = config.get('default_markup', 13)
+    print(f"  Наценка: +{default_markup}%")
 
-    print("  Загружаю порядок групп...")
-    group_order = load_group_order(config)
-    print(f"  Позиций в порядке: {len(group_order)}")
-
-    df = apply_pricing(df, group_markups, homeline_prices, default_markup)
+    df = apply_pricing(df, {}, {}, default_markup)
 
     wb = openpyxl.Workbook()
-    build_pricelist(df, wb, config, group_order)
+    build_pricelist(df, wb, config, {})
     # Лист «Наценки» НЕ добавляется — только 1 лист «Прайс клиента»
 
     if output_dir is None:
