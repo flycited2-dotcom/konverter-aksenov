@@ -34,7 +34,7 @@ def send_file(filepath: str, caption: str = None) -> bool:
         date_str = datetime.today().strftime('%d.%m.%Y')
         caption = (
             f"Актуальный прайс от {date_str}\n"
-            f"<blockquote>➡️ Генераторы,\n"
+            f"<blockquote>➡️ <b>Генераторы</b>,\n"
             f"➡️ Инструмент,\n"
             f"➡️ Запчасти</blockquote>"
         )
