@@ -68,9 +68,15 @@ def main():
     print("   Excel-автоматизация для оптовой торговли")
     print("=" * 55)
 
-    # Разбор аргументов: [файл] [--send-at HH:MM]
+    # Разбор аргументов: [файл] [--send-at HH:MM] [--immediate]
     args = list(sys.argv[1:])
     send_at = None
+    immediate = False
+
+    if '--immediate' in args:
+        immediate = True
+        args.remove('--immediate')
+
     if '--send-at' in args:
         idx = args.index('--send-at')
         if idx + 1 < len(args):
@@ -92,6 +98,9 @@ def main():
 
     if send_at:
         wait_until(send_at)
+        from telegram_send import send_file
+        send_file(output_path)
+    elif immediate:
         from telegram_send import send_file
         send_file(output_path)
     elif ask_yes_no("Отправить файл в Telegram?"):
