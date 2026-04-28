@@ -105,6 +105,40 @@ def load_markups(config):
     return group_markups, homeline_prices
 
 
+# ─── Сортировка генераторов ───────────────────────────────────────────────────
+
+def _generator_sort_key(name: str) -> tuple:
+    """Ключ сортировки внутри группы генераторов.
+    Порядок: инверт.бенз → инверт.диз → инверт.двухтопл → бенз → диз → двухтопл → автоматика/прочее
+    Внутри каждой подгруппы — по мощности по возрастанию.
+    """
+    n = name.lower()
+    is_inverter = 'инвертор' in n
+    is_diesel   = 'дизел' in n
+    is_dual     = 'duomatic' in n or 'двухтопл' in n or 'дуомат' in n
+    is_avr      = 'авр' in n or ' ats' in n or 'автоматик' in n
+
+    if is_avr:
+        subtype = 6
+    elif is_inverter and is_dual:
+        subtype = 2
+    elif is_inverter and is_diesel:
+        subtype = 1
+    elif is_inverter:
+        subtype = 0
+    elif is_dual:
+        subtype = 5
+    elif is_diesel:
+        subtype = 4
+    else:
+        subtype = 3  # бензиновый не инверторный
+
+    numbers = [int(m) for m in re.findall(r'\d+', name) if 500 <= int(m) <= 25000]
+    power = numbers[0] if numbers else 99999
+
+    return (subtype, power)
+
+
 # ─── Извлечение бренда из названия товара ────────────────────────────────────
 
 def extract_brand(name: str) -> str:
@@ -288,12 +322,18 @@ def build_pricelist(df, wb, config, group_order):
 
     sorted_groups = sorted(unique_groups, key=group_sort_key)
 
+    GEN_GROUP = 'Генераторы (электростанции)'
+
     # ─── Данные ───
     row = 6
     num = 1
 
     for group in sorted_groups:
-        gdf = df[df['group'] == group]
+        gdf = df[df['group'] == group].copy()
+
+        if group == GEN_GROUP:
+            gdf['_sk'] = gdf['name'].apply(_generator_sort_key)
+            gdf = gdf.sort_values('_sk').drop(columns=['_sk'])
 
         ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
         gc = ws.cell(row=row, column=1, value=group)

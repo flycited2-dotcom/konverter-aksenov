@@ -1,5 +1,7 @@
 import os
 import sys
+import time
+from datetime import datetime, timedelta
 from pathlib import Path
 
 BASE_DIR = Path(__file__).parent
@@ -36,13 +38,49 @@ def ask_yes_no(question: str) -> bool:
     return ans in ('y', 'д', 'да', 'yes', '1')
 
 
+def wait_until(send_at: str):
+    """Ожидает до указанного времени HH:MM. Если уже прошло — ждёт до следующего дня."""
+    try:
+        hh, mm = map(int, send_at.split(':'))
+    except ValueError:
+        print(f"Неверный формат времени: {send_at}. Используйте HH:MM (например 10:00)")
+        sys.exit(1)
+
+    now = datetime.now()
+    target = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+    if target <= now:
+        target += timedelta(days=1)
+
+    wait_sec = (target - now).total_seconds()
+    h = int(wait_sec // 3600)
+    m = int((wait_sec % 3600) // 60)
+
+    print()
+    print(f"  Запланировано: {target.strftime('%d.%m.%Y в %H:%M')}")
+    print(f"  Ожидание: {h} ч {m} мин")
+    print("  (оставьте окно открытым)")
+    time.sleep(wait_sec)
+
+
 def main():
     print()
     print("=" * 55)
     print("   Excel-автоматизация для оптовой торговли")
     print("=" * 55)
 
-    input_path = pick_input_file(sys.argv[1] if len(sys.argv) > 1 else None)
+    # Разбор аргументов: [файл] [--send-at HH:MM]
+    args = list(sys.argv[1:])
+    send_at = None
+    if '--send-at' in args:
+        idx = args.index('--send-at')
+        if idx + 1 < len(args):
+            send_at = args[idx + 1]
+            args = args[:idx] + args[idx + 2:]
+        else:
+            print("Укажите время после --send-at, например: --send-at 10:00")
+            sys.exit(1)
+
+    input_path = pick_input_file(args[0] if args else None)
 
     print()
     print("Шаг 1 — Трансформация прайса...")
@@ -51,7 +89,12 @@ def main():
 
     print()
     print("Шаг 2 — Отправка в Telegram")
-    if ask_yes_no("Отправить файл в Telegram?"):
+
+    if send_at:
+        wait_until(send_at)
+        from telegram_send import send_file
+        send_file(output_path)
+    elif ask_yes_no("Отправить файл в Telegram?"):
         from telegram_send import send_file
         send_file(output_path)
     else:
