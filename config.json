@@ -18,7 +18,7 @@
     "skiprows": 8
   },
   "default_markup": 13,
-  "output_prefix": "Аксенов",
+  "output_prefix": "Генераторы_БытТехОпт",
   "telegram": {
     "bot_token": "8639233666:AAH1uhJP1gBKIPmKyHesCuP86sFL_BzIvz4",
     "channel_id": "-1001929222037"

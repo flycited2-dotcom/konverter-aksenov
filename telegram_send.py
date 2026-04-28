@@ -31,9 +31,12 @@ def send_file(filepath: str, caption: str = None) -> bool:
         return False
 
     if caption is None:
+        date_str = datetime.today().strftime('%d.%m.%Y')
         caption = (
-            f"Актуальный прайс от {datetime.today().strftime('%d.%m.%Y')}\n"
-            f"Генераторы, инструмент, запчасти"
+            f"Актуальный прайс от {date_str}\n"
+            f"<blockquote>➡️ Генераторы,\n"
+            f"➡️ Инструмент,\n"
+            f"➡️ Запчасти</blockquote>"
         )
 
     url = f"https://api.telegram.org/bot{token}/sendDocument"
