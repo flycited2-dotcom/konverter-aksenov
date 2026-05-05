@@ -17,11 +17,14 @@ def pick_input_file(arg=None):
 
     input_dir = BASE_DIR / 'input'
     input_dir.mkdir(exist_ok=True)
-    files = sorted(input_dir.glob('*.xlsx'), key=os.path.getmtime, reverse=True)
+    files = sorted(
+        list(input_dir.glob('*.xlsx')) + list(input_dir.glob('*.xls')),
+        key=os.path.getmtime, reverse=True
+    )
     if not files:
         print("=" * 55)
         print("  Нет файлов в папке input/")
-        print("  Положите прайс поставщика (.xlsx) в папку:")
+        print("  Положите прайс поставщика (.xlsx или .xls) в папку:")
         print(f"  {input_dir}")
         print("  и запустите run.py снова")
         print("=" * 55)
