@@ -36,12 +36,16 @@ def main():
     task_name = f"БытТехОпт_{target.strftime('%Y%m%d_%H%M')}"
     python_exe = sys.executable
     send_script = str(BASE_DIR / 'telegram_send.py')
+    end_boundary = target + timedelta(hours=1)
 
     # Создаём задачу через PowerShell (не зависит от локали Windows)
+    # EndBoundary обязателен при использовании DeleteExpiredTaskAfter
     ps_script = f"""
+$ErrorActionPreference = 'Stop'
 $action  = New-ScheduledTaskAction -Execute '{python_exe}' -Argument '"{send_script}" "{output_path}"'
 $trigger = New-ScheduledTaskTrigger -Once -At '{target.strftime("%Y-%m-%dT%H:%M:00")}'
-$settings = New-ScheduledTaskSettingsSet -DeleteExpiredTaskAfter 00:01:00
+$trigger.EndBoundary = '{end_boundary.strftime("%Y-%m-%dT%H:%M:00")}'
+$settings = New-ScheduledTaskSettingsSet -DeleteExpiredTaskAfter (New-TimeSpan -Minutes 1)
 Register-ScheduledTask -TaskName '{task_name}' -Action $action -Trigger $trigger -Settings $settings -Force | Out-Null
 Write-Host 'OK'
 """
@@ -51,7 +55,7 @@ Write-Host 'OK'
         capture_output=True, text=True
     )
 
-    if 'OK' in result.stdout:
+    if 'OK' in result.stdout and not result.stderr.strip():
         print()
         print(f"  Готово! Задача создана в планировщике Windows.")
         print(f"  Отправка: {target.strftime('%d.%m.%Y в %H:%M')}")
@@ -59,7 +63,7 @@ Write-Host 'OK'
         print()
     else:
         print(f"  Ошибка создания задачи:")
-        print(result.stderr or result.stdout)
+        print(result.stderr or result.stdout or "(нет вывода)")
         sys.exit(1)
 
 
