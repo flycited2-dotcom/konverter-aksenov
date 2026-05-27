@@ -366,9 +366,10 @@ def build_pricelist(df, wb, config, group_order):
 # ─── Главная функция ──────────────────────────────────────────────────────────
 
 def transform(input_path, output_dir=None):
+    import unicodedata
     config = load_config()
 
-    print(f"  Читаю файл: {Path(input_path).name}")
+    print(f"  Читаю файл: {unicodedata.normalize('NFC', Path(input_path).name)}")
     df = read_supplier_price(input_path, config)
     print(f"  Загружено позиций: {len(df)}")
 

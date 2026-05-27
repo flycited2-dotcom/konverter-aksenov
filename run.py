@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import unicodedata
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -17,10 +18,9 @@ def pick_input_file(arg=None):
 
     input_dir = BASE_DIR / 'input'
     input_dir.mkdir(exist_ok=True)
-    files = sorted(
-        list(input_dir.glob('*.xlsx')) + list(input_dir.glob('*.xls')),
-        key=os.path.getmtime, reverse=True
-    )
+    all_files = [f for f in list(input_dir.glob('*.xlsx')) + list(input_dir.glob('*.xls'))
+                 if not f.name.startswith('~$')]
+    files = sorted(all_files, key=os.path.getmtime, reverse=True)
     if not files:
         print("=" * 55)
         print("  Нет файлов в папке input/")
@@ -30,7 +30,8 @@ def pick_input_file(arg=None):
         print("=" * 55)
         sys.exit(1)
 
-    print(f"Найден файл: {files[0].name}")
+    display_name = unicodedata.normalize('NFC', files[0].name)
+    print(f"Найден файл: {display_name}")
     if len(files) > 1:
         print(f"  (найдено {len(files)} файлов, берём самый новый)")
     return str(files[0])
