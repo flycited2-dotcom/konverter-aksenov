@@ -36,7 +36,8 @@ def send_file(filepath: str, caption: str = None) -> bool:
             f"<b>Актуальный прайс от {date_str}</b>\n"
             f"<blockquote>➡️ Генераторы,\n"
             f"➡️ Инструмент,\n"
-            f"➡️ Запчасти</blockquote>"
+            f"➡️ Запчасти</blockquote>\n"
+            f"\nhttps://splithub.ru/"
         )
 
     url = f"https://api.telegram.org/bot{token}/sendDocument"
