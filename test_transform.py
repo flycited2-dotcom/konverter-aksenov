@@ -18,19 +18,66 @@ import openpyxl
 # ─── Вспомогательная функция: создать минимальный .xlsx в памяти ──────────────
 
 def make_xlsx_bytes(rows_data):
-    """rows_data — список кортежей (name, price_or_none)."""
+    """Табличный формат: 1 строка = 1 товар.
+    rows_data — список кортежей (name, price_or_none).
+    col 0 = Артикул, col 13 = Номенклатура (N), col 14 = Опт-цена (O)."""
     import openpyxl
     wb = openpyxl.Workbook()
     ws = wb.active
-    # 8 строк-заглушек (чтобы skiprows=8 сработал)
-    for _ in range(8):
-        ws.append([None] * 14)
-    # Данные: col 0 = name, col 13 = price (индексы 1-based: A и N)
+    # Реквизиты + строки-заглушки
+    for _ in range(4):
+        ws.append([None] * 15)
+    # Строка-заголовок (по ней парсер находит колонки)
+    hdr = [None] * 15
+    hdr[0] = 'Артикул'
+    hdr[13] = 'Номенклатура'
+    hdr[14] = 'Опт -8% (НАЛ)'
+    ws.append(hdr)
+    # Данные
     for name, price in rows_data:
-        row = [None] * 14
-        row[0] = name
-        row[13] = price
+        row = [None] * 15
+        row[13] = name
+        row[14] = price
         ws.append(row)
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf
+
+
+def _fmt_rub(n):
+    """520 -> '520,00 RUB',  1140 -> '1 140,00 RUB' (как в карточном прайсе)."""
+    s = f'{int(n):,}'.replace(',', ' ')  # неразрывный пробел-разделитель тысяч
+    return f'{s},00 RUB'
+
+
+def make_card_xlsx_bytes(rows):
+    """Карточный формат: 1 товар = блок из нескольких строк.
+    rows — список кортежей:
+      ('group', 'Название группы')            → строка-заголовок группы (col 1)
+      ('item', name, article, price_number)   → карточка товара (3 строки)
+    Раскладка карточки повторяет реальный файл: наименование в col 5,
+    подписи 'Код'/'Артикул'/'Цена', значения в col 5/9/13, цена текстом '… RUB'."""
+    import openpyxl
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    # Реквизиты в col 10 (как в реальном файле)
+    for i in range(4):
+        rr = [None] * 14
+        rr[10] = f'ИП Аксёнов Н.Ю. {i}'
+        ws.append(rr)
+    ws.append([None] * 14)
+    for row in rows:
+        if row[0] == 'group':
+            rr = [None] * 14
+            rr[1] = row[1]
+            ws.append(rr)
+        else:
+            _, name, article, price = row
+            rr = [None] * 14; rr[1] = 'НЕТ\nФОТОГРАФИИ'; rr[5] = name; ws.append(rr)
+            rr = [None] * 14; rr[5] = 'Код'; rr[9] = 'Артикул'; rr[13] = 'Цена'; ws.append(rr)
+            rr = [None] * 14; rr[5] = f'УТ-{article}'; rr[9] = article; rr[13] = _fmt_rub(price); ws.append(rr)
+            ws.append([None] * 14)
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
@@ -144,11 +191,13 @@ def test_extract_brand(name, expected):
 # Ищем xlsx в input/, исключаем временные файлы Excel (~$...)
 _input_files = [f for f in (Path(__file__).parent / 'input').glob('*.xlsx')
                 if not f.name.startswith('~')]
-REAL_FILE = _input_files[0] if _input_files else None
+# Карточный файл помечен 'card' в имени; остальные считаем табличными
+REAL_CARD_FILE = next((f for f in _input_files if 'card' in f.name.lower()), None)
+REAL_TABLE_FILE = next((f for f in _input_files if 'card' not in f.name.lower()), None)
 
-@pytest.mark.skipif(REAL_FILE is None, reason="Файл поставщика не найден в input/")
+@pytest.mark.skipif(REAL_TABLE_FILE is None, reason="Табличный файл поставщика не найден в input/")
 def test_real_file_parse():
-    df = read_supplier_price(str(REAL_FILE), CONFIG)  # type: ignore[arg-type]
+    df = read_supplier_price(str(REAL_TABLE_FILE), CONFIG)  # type: ignore[arg-type]
 
     assert len(df) > 500, f"Ожидалось >500 позиций, получено {len(df)}"
     assert df['article'].str.match(r'^UT-\d{6}$').all(), "Найдены артикулы неверного формата"
@@ -194,3 +243,136 @@ def test_generators_first_group():
     assert group_rows[0] == 'Генераторы (электростанции)', (
         f"Первая группа должна быть 'Генераторы (электростанции)', получено: '{group_rows[0]}'"
     )
+
+
+# ─── Тест 10: Парсинг текстовой цены '… RUB' ─────────────────────────────────
+
+@pytest.mark.parametrize("text, expected", [
+    ('520,00 RUB', 520.0),
+    ('1 140,00 RUB', 1140.0),
+    ('3 995,00 RUB', 3995.0),
+    ('160,00 RUB', 160.0),
+    ('12 500,50 RUB', 12500.5),
+])
+def test_parse_price_text(text, expected):
+    from transform import _parse_price_text
+    assert _parse_price_text(text) == expected
+
+
+# ─── Тест 11: Определение макета файла (табличный / карточный) ────────────────
+
+def test_detect_layout_table():
+    from transform import detect_layout
+    df = pd.read_excel(make_xlsx_bytes([('Группа', None), ('Товар', 500)]), header=None)
+    assert detect_layout(df) == 'table'
+
+
+def test_detect_layout_card():
+    from transform import detect_layout
+    rows = [('group', 'Группа'), ('item', 'Товар', 'A1', 520)]
+    df = pd.read_excel(make_card_xlsx_bytes(rows), header=None)
+    assert detect_layout(df) == 'card'
+
+
+# ─── Тест 12: Разбор карточного формата ──────────────────────────────────────
+
+def test_card_parse_basic():
+    rows = [
+        ('group', 'Аккумуляторный инструмент'),
+        ('item', 'Аккумулятор ВИТЯЗЬ Тип-М 20В', '18037001', 520),
+        ('item', 'Дрель-шуруповерт ВИТЯЗЬ ДА-201', '18012031', 3305),
+        ('group', 'Генераторы (электростанции)'),
+        ('item', 'Генератор CARVER GPG 3кВт', 'ГЕН-1', 15000),
+    ]
+    df = read_supplier_price(make_card_xlsx_bytes(rows), CONFIG)
+
+    assert len(df) == 3
+    assert df.iloc[0]['name'] == 'Аккумулятор ВИТЯЗЬ Тип-М 20В'
+    assert df.iloc[0]['price_in'] == 520.0
+    assert df.iloc[0]['group'] == 'Аккумуляторный инструмент'
+    assert df.iloc[2]['group'] == 'Генераторы (электростанции)'
+    # Артикулы обезличиваются (UT-…), а не берутся из файла
+    assert df['article'].tolist() == ['UT-000001', 'UT-000002', 'UT-000003']
+    # Бренд извлекается из наименования
+    assert df.iloc[0]['brand'] == 'ВИТЯЗЬ'
+
+
+def test_card_thousands_price():
+    """Цена с разделителем тысяч '1 140,00 RUB' парсится в 1140.0."""
+    rows = [('group', 'Г'), ('item', 'Товар X', 'A1', 1140)]
+    df = read_supplier_price(make_card_xlsx_bytes(rows), CONFIG)
+    assert df.iloc[0]['price_in'] == 1140.0
+
+
+# ─── Тест 13: Табличный парсер находит колонки по заголовку (не по индексу) ───
+
+def test_table_autodetect_shifted_columns():
+    """Колонки определяются по строке-заголовку, даже если сдвинуты."""
+    import openpyxl
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append([None] * 5)
+    ws.append([None] * 5)
+    ws.append([None, 'Наименование', 'Цена', None, None])   # заголовок: колонки B, C
+    ws.append([None, 'Дрель Интерскол', 1000, None, None])
+    ws.append([None, 'Генераторы', None, None, None])        # группа (нет цены)
+    ws.append([None, 'Генератор CARVER 3кВт', 15000, None, None])
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    df = read_supplier_price(buf, {'read_options': {}, 'default_markup': 13})
+    assert len(df) == 2
+    assert df.iloc[0]['name'] == 'Дрель Интерскол'
+    assert df.iloc[0]['price_in'] == 1000
+    assert df.iloc[1]['group'] == 'Генераторы'
+
+
+# ─── Тест 14: Нераспознанная структура даёт понятную ошибку ───────────────────
+
+def test_unrecognized_structure_raises():
+    """Файл без цен и заголовков → явная ошибка, а не тихие 0 позиций."""
+    import openpyxl
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    for _ in range(6):
+        ws.append(['текст', 'ещё текст', 'без цифр'])
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    with pytest.raises(ValueError):
+        read_supplier_price(buf, CONFIG)
+
+
+# ─── Тест 15: Интеграционный — реальный карточный файл ───────────────────────
+
+@pytest.mark.skipif(REAL_CARD_FILE is None, reason="Карточный файл не найден в input/")
+def test_real_card_file_parse():
+    df = read_supplier_price(str(REAL_CARD_FILE), CONFIG)  # type: ignore[arg-type]
+
+    assert len(df) > 500, f"Ожидалось >500 позиций, получено {len(df)}"
+    assert df['article'].str.match(r'^UT-\d{6}$').all(), "Найдены артикулы неверного формата"
+    assert df['name'].str.strip().ne('').all(), "Есть пустые названия товаров"
+    assert df['group'].ne('').all(), "Есть товары без группы"
+    assert (df['price_in'] > 0).all(), "Есть нулевые или отрицательные цены"
+    assert df['brand'].ne('').all(), "Есть товары с пустым брендом"
+
+    print(f"\n  [карточный] Позиций: {len(df)}")
+    print(f"  [карточный] Групп:   {df['group'].nunique()}")
+
+
+# ─── Тест 16: detect_layout на реальных файлах ───────────────────────────────
+
+@pytest.mark.skipif(REAL_TABLE_FILE is None, reason="Табличный файл не найден")
+def test_real_table_layout_detected():
+    from transform import detect_layout
+    df = pd.read_excel(str(REAL_TABLE_FILE), header=None)
+    assert detect_layout(df) == 'table'
+
+
+@pytest.mark.skipif(REAL_CARD_FILE is None, reason="Карточный файл не найден")
+def test_real_card_layout_detected():
+    from transform import detect_layout
+    df = pd.read_excel(str(REAL_CARD_FILE), header=None)
+    assert detect_layout(df) == 'card'

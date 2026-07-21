@@ -159,27 +159,119 @@ def extract_brand(name: str) -> str:
 
 
 # ─── Чтение прайса поставщика ─────────────────────────────────────────────────
+#
+# Прайс ИП Аксёнов приходит в двух макетах (структура «плавает» от версии к версии):
+#   • табличный — 1 строка = 1 товар (колонки наименования/цены ищутся по шапке);
+#   • карточный — 1 товар = блок из нескольких строк, цена текстом «520,00 RUB».
+# read_supplier_price сам определяет макет и вызывает нужный разборщик.
+# Оба возвращают одинаковый DataFrame: [article, group, brand, name, price_in].
+# Артикулы всегда генерируются (UT-000001…) — коды поставщика не выводятся.
 
-def read_supplier_price(filepath, config):
-    """Парсит прайс Аксенова: колонка A (0) — название, колонка N (13) — цена.
-    Строки без цены используются как заголовки групп.
-    Артикулы генерируются автоматически: UT-000001, UT-000002, ...
-    """
-    skiprows = config.get('read_options', {}).get('skiprows', 8)
-    df_raw = pd.read_excel(filepath, header=None, skiprows=skiprows, usecols=[0, 13])
-    df_raw.columns = ['name', 'price_in']
+# Ячейка-цена карточного формата: «1 140,00 RUB», «520,00 RUB» и т.п.
+_PRICE_RUB_RE = r'\d[\d\s ]*[.,]\d{2}\s*RUB'
+_NAME_KW = ('номенклатура', 'наименование', 'название')
+_PRICE_KW = ('цена', 'опт', 'ррц', 'стоимост', 'прайс')
+
+
+def _parse_price_text(value):
+    """'1 140,00 RUB' → 1140.0. Возвращает None, если распознать не удалось."""
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return None
+    s = re.sub(r'[^\d.,]', '', str(value))   # убираем пробелы, 'RUB', валюту
+    if not s:
+        return None
+    s = s.replace(',', '.')                   # запятая — десятичный разделитель
+    if s.count('.') > 1:                      # на случай нескольких точек
+        head, _, tail = s.rpartition('.')
+        s = head.replace('.', '') + '.' + tail
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+def detect_layout(df):
+    """Определяет макет по содержимому: 'card', если встречаются ячейки-цены
+    вида «… RUB» (карточный), иначе 'table' (табличный). В табличном формате
+    цены числовые, поэтому таких ячеек там нет вовсе."""
+    for c in range(df.shape[1]):
+        col = df.iloc[:, c].dropna().astype(str)
+        if len(col) and col.str.contains(_PRICE_RUB_RE, regex=True, na=False).any():
+            return 'card'
+    return 'table'
+
+
+def _find_header_row(df):
+    """Ищет строку-заголовок (по ключевому слову наименования) в первых 25 строках.
+    Возвращает (header_row, name_col, price_col); любой из них может быть None."""
+    for r in range(min(25, len(df))):
+        name_col = price_col = None
+        for c in range(df.shape[1]):
+            v = df.iat[r, c]
+            if pd.isna(v):
+                continue
+            s = str(v).strip().lower()
+            if name_col is None and any(k in s for k in _NAME_KW):
+                name_col = c
+            if price_col is None and any(k in s for k in _PRICE_KW):
+                price_col = c
+        if name_col is not None:
+            return r, name_col, price_col
+    return None, None, None
+
+
+def _detect_price_col(df, start):
+    """Колонка с наибольшим числом числовых значений в теле (fallback)."""
+    best_col, best_cnt = None, 0
+    for c in range(df.shape[1]):
+        cnt = int(pd.to_numeric(df.iloc[start:, c], errors='coerce').notna().sum())
+        if cnt > best_cnt:
+            best_col, best_cnt = c, cnt
+    return best_col if best_cnt > 0 else None
+
+
+def _detect_name_col(df, start, exclude):
+    """Колонка с наибольшим числом текстовых значений (fallback)."""
+    best_col, best_cnt = None, 0
+    for c in range(df.shape[1]):
+        if c == exclude:
+            continue
+        col = df.iloc[start:, c]
+        texts = int(col.notna().sum() - pd.to_numeric(col, errors='coerce').notna().sum())
+        if texts > best_cnt:
+            best_col, best_cnt = c, texts
+    return best_col if best_cnt > 0 else None
+
+
+def parse_table(df, config):
+    """Табличный макет: 1 строка = 1 товар. Колонки наименования и цены
+    определяются по строке-заголовку; строки без цены — заголовки групп."""
+    header_row, name_col, price_col = _find_header_row(df)
+    if header_row is not None:
+        body_start = header_row + 1
+        if price_col is None:
+            price_col = _detect_price_col(df, body_start)
+    else:
+        body_start = config.get('read_options', {}).get('skiprows', 8)
+        price_col = _detect_price_col(df, body_start)
+        name_col = _detect_name_col(df, body_start, exclude=price_col)
+
+    if name_col is None or price_col is None:
+        raise ValueError(
+            "Не удалось определить структуру табличного файла: "
+            "не найдена колонка наименования или цены."
+        )
 
     rows = []
     current_group = ''
     counter = 1
-
-    for _, row in df_raw.iterrows():
-        name = str(row['name']).strip() if pd.notna(row['name']) else ''
+    for r in range(body_start, len(df)):
+        nv = df.iat[r, name_col]
+        name = str(nv).strip() if pd.notna(nv) else ''
         if not name or name == 'nan':
             continue
-
-        price_num = pd.to_numeric(row['price_in'], errors='coerce')
-
+        pv = df.iat[r, price_col] if price_col < df.shape[1] else None
+        price_num = pd.to_numeric(pv, errors='coerce')
         if pd.isna(price_num):
             current_group = name
         else:
@@ -188,11 +280,110 @@ def read_supplier_price(filepath, config):
                 'group':    current_group,
                 'brand':    extract_brand(name),
                 'name':     name,
-                'price_in': price_num,
+                'price_in': float(price_num),
             })
             counter += 1
+    return pd.DataFrame(rows)
+
+
+def _find_rub_col(df):
+    """Колонка с наибольшим числом ячеек-цен «… RUB»."""
+    best_col, best_cnt = None, 0
+    for c in range(df.shape[1]):
+        col = df.iloc[:, c].dropna().astype(str)
+        cnt = int(col.str.contains(_PRICE_RUB_RE, regex=True, na=False).sum()) if len(col) else 0
+        if cnt > best_cnt:
+            best_col, best_cnt = c, cnt
+    return best_col
+
+
+def _find_label_col(df, label):
+    """Колонка, в которой встречается ячейка-подпись (напр. 'Код')."""
+    for c in range(df.shape[1]):
+        col = df.iloc[:, c].dropna().astype(str).str.strip()
+        if len(col) and (col == label).any():
+            return c
+    return None
+
+
+def _find_col_containing(df, substr):
+    """Колонка, где встречается ячейка с подстрокой (напр. 'ФОТОГРАФ')."""
+    up = substr.upper()
+    for c in range(df.shape[1]):
+        col = df.iloc[:, c].dropna().astype(str).str.upper()
+        if len(col) and col.str.contains(up, regex=False, na=False).any():
+            return c
+    return None
+
+
+def parse_cards(df, config):
+    """Карточный макет: 1 товар = блок строк. Якорь — строка со значением цены
+    «… RUB». Наименование берётся из строки с фото-плейсхолдером выше, заголовки
+    групп — из колонки фото (текст, не «НЕТ ФОТОГРАФИИ»). Подписи Код/Артикул/Цена
+    пропускаются."""
+    price_col = _find_rub_col(df)
+    if price_col is None:
+        raise ValueError("Карточный формат: не найдена колонка цены «… RUB».")
+
+    # Колонка наименования = где стоит подпись 'Код' (там же наименования и коды);
+    # fallback — самая текстовая колонка.
+    name_col = _find_label_col(df, 'Код')
+    if name_col is None:
+        name_col = _detect_name_col(df, 0, exclude=price_col)
+    group_col = _find_col_containing(df, 'ФОТОГРАФ')
+
+    _labels = ('Код', 'Артикул', 'Цена')
+    rows = []
+    current_group = ''
+    pending_name = None
+    counter = 1
+
+    for r in range(len(df)):
+        pv = df.iat[r, price_col] if price_col < df.shape[1] else None
+        pv_s = str(pv) if pd.notna(pv) else ''
+        price = _parse_price_text(pv) if 'RUB' in pv_s.upper() else None
+
+        if price is not None:
+            rows.append({
+                'article':  f'UT-{counter:06d}',
+                'group':    current_group,
+                'brand':    extract_brand(pending_name or ''),
+                'name':     pending_name or '',
+                'price_in': price,
+            })
+            counter += 1
+            pending_name = None
+            continue
+
+        gv = df.iat[r, group_col] if (group_col is not None and group_col < df.shape[1]) else None
+        group_val = str(gv).strip() if pd.notna(gv) else ''
+        if group_val and 'ФОТОГРАФ' not in group_val.upper():
+            current_group = group_val
+            pending_name = None
+            continue
+
+        nv = df.iat[r, name_col] if name_col is not None and name_col < df.shape[1] else None
+        name_val = str(nv).strip() if pd.notna(nv) else ''
+        if name_val and name_val not in _labels and 'ФОТОГРАФ' not in name_val.upper():
+            if pending_name is None:      # первая строка блока = наименование
+                pending_name = name_val
 
     return pd.DataFrame(rows)
+
+
+def read_supplier_price(filepath, config):
+    """Точка входа: определяет макет файла и разбирает его соответствующим
+    разборщиком. Возвращает DataFrame [article, group, brand, name, price_in]."""
+    df = pd.read_excel(filepath, header=None, sheet_name=0)
+    layout = detect_layout(df)
+    result = parse_cards(df, config) if layout == 'card' else parse_table(df, config)
+
+    if len(result) == 0:
+        raise ValueError(
+            "Не удалось извлечь ни одной позиции — возможно, структура файла "
+            "изменилась. Проверьте, что это прайс ИП Аксёнов."
+        )
+    return result
 
 
 # ─── Применение наценок ───────────────────────────────────────────────────────
