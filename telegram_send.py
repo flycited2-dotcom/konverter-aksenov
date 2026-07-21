@@ -6,8 +6,15 @@ from pathlib import Path
 BASE_DIR = Path(__file__).parent
 
 
-def load_config():
-    with open(BASE_DIR / 'config.json', encoding='utf-8') as f:
+def load_secrets(base_dir=BASE_DIR):
+    """Читает секреты Telegram (bot_token, channel_id) из secrets.json — файла
+    ВНЕ git (он в .gitignore). Возвращает {} если файла нет.
+    Секреты держим отдельно от config.json, иначе токен утекает в репозиторий
+    и Telegram его автоматически отзывает."""
+    path = Path(base_dir) / 'secrets.json'
+    if not path.exists():
+        return {}
+    with open(path, encoding='utf-8') as f:
         return json.load(f)
 
 
@@ -18,16 +25,15 @@ def send_file(filepath: str, caption: str = None) -> bool:
         print("Ошибка: установите пакет requests → pip install requests")
         return False
 
-    config = load_config()
-    tg = config.get('telegram', {})
-    token = tg.get('bot_token', '').strip()
-    channel_id = tg.get('channel_id', '').strip()
+    secrets = load_secrets()
+    token = str(secrets.get('bot_token', '')).strip()
+    channel_id = str(secrets.get('channel_id', '')).strip()
 
-    if not token:
-        print("Ошибка: заполните telegram.bot_token в config.json")
-        return False
-    if not channel_id:
-        print("Ошибка: заполните telegram.channel_id в config.json")
+    if not token or not channel_id:
+        print("Ошибка: не найдены секреты Telegram.")
+        print("Создайте файл secrets.json рядом с telegram_send.py (шаблон — secrets.example.json):")
+        print('  {"bot_token": "ВАШ_ТОКЕН_ОТ_BOTFATHER", "channel_id": "-100XXXXXXXXXX"}')
+        print("Файл secrets.json НЕ коммитится в git (он в .gitignore).")
         return False
 
     if caption is None:

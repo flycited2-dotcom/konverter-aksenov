@@ -556,6 +556,29 @@ def build_pricelist(df, wb, config, group_order):
 
 # ─── Главная функция ──────────────────────────────────────────────────────────
 
+def _save_workbook(wb, output_dir, base_name):
+    """Сохраняет книгу в output_dir/base_name.xlsx.
+    Если основной файл занят (обычно открыт в Excel) — сохраняет под именем
+    с меткой времени, чтобы результат не потерялся и не было аварийного трейсбека.
+    Возвращает фактический путь сохранённого файла."""
+    primary = Path(output_dir) / f"{base_name}.xlsx"
+    try:
+        wb.save(primary)
+        return str(primary)
+    except PermissionError:
+        alt = Path(output_dir) / f"{base_name}_{datetime.now():%H-%M-%S}.xlsx"
+        try:
+            wb.save(alt)
+        except PermissionError:
+            raise PermissionError(
+                f"Не удаётся сохранить в папку output: файл {primary.name} "
+                f"открыт в Excel. Закройте его и запустите снова."
+            )
+        print(f"  Внимание: {primary.name} занят (открыт в Excel) —")
+        print(f"  сохранил под именем {alt.name}")
+        return str(alt)
+
+
 def transform(input_path, output_dir=None):
     import unicodedata
     config = load_config()
@@ -579,8 +602,7 @@ def transform(input_path, output_dir=None):
 
     prefix = config.get('output_prefix', 'БытТехОпт')
     ts = datetime.today().strftime('%Y%m%d')
-    output_path = str(Path(output_dir) / f"{prefix}_{ts}.xlsx")
-    wb.save(output_path)
+    output_path = _save_workbook(wb, output_dir, f"{prefix}_{ts}")
     print(f"  Сохранено: {output_path}")
     return output_path
 

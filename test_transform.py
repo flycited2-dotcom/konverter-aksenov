@@ -376,3 +376,57 @@ def test_real_card_layout_detected():
     from transform import detect_layout
     df = pd.read_excel(str(REAL_CARD_FILE), header=None)
     assert detect_layout(df) == 'card'
+
+
+# ─── Тест 17: Секреты Telegram читаются из secrets.json (вне git) ─────────────
+
+def test_load_secrets_from_file(tmp_path):
+    from telegram_send import load_secrets
+    (tmp_path / 'secrets.json').write_text(
+        '{"bot_token": "TOKEN123", "channel_id": "-100999"}', encoding='utf-8')
+    s = load_secrets(tmp_path)
+    assert s['bot_token'] == 'TOKEN123'
+    assert s['channel_id'] == '-100999'
+
+
+def test_load_secrets_missing_returns_empty(tmp_path):
+    """Если secrets.json нет — возвращается пустой dict (без падения на импорте)."""
+    from telegram_send import load_secrets
+    assert load_secrets(tmp_path) == {}
+
+
+# ─── Тест 18: Сохранение устойчиво к занятому файлу (открыт в Excel) ──────────
+
+class _FakeWB:
+    """Подделка Workbook: первые `fail_times` вызовов save() кидают PermissionError."""
+    def __init__(self, fail_times=0):
+        self.fail_times = fail_times
+        self.calls = 0
+        self.saved_to = None
+
+    def save(self, path):
+        self.calls += 1
+        if self.calls <= self.fail_times:
+            raise PermissionError("файл занят")
+        self.saved_to = str(path)
+
+
+def test_save_workbook_normal(tmp_path):
+    """Если файл свободен — сохраняется под основным именем."""
+    from transform import _save_workbook
+    wb = _FakeWB(fail_times=0)
+    result = _save_workbook(wb, str(tmp_path), "Прайс_20260721")
+    assert Path(result).name == "Прайс_20260721.xlsx"
+    assert wb.saved_to == result
+
+
+def test_save_workbook_fallback_when_locked(tmp_path):
+    """Если основной файл занят — сохраняется под именем со временем, без падения."""
+    from transform import _save_workbook
+    wb = _FakeWB(fail_times=1)
+    result = _save_workbook(wb, str(tmp_path), "Прайс_20260721")
+    assert wb.saved_to == result
+    assert result.endswith(".xlsx")
+    # имя отличается от основного (добавлена метка времени)
+    assert Path(result).name != "Прайс_20260721.xlsx"
+    assert Path(result).name.startswith("Прайс_20260721")

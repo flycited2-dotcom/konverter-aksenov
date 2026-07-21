@@ -19,9 +19,5 @@
   },
   "default_markup": 13,
   "output_prefix": "Генераторы_БытТехОпт",
-  "priority_groups": ["Генераторы (электростанции)"],
-  "telegram": {
-    "bot_token": "8639233666:AAH1uhJP1gBKIPmKyHesCuP86sFL_BzIvz4",
-    "channel_id": "-1001929222037"
-  }
+  "priority_groups": ["Генераторы (электростанции)"]
 }
